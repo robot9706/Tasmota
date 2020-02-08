@@ -111,7 +111,7 @@ static void UDPCMD_Discover()
     const char* name = SettingsText(SET_FRIENDLYNAME1);
     int nameLen = strlen(name);
 
-    int packetLen = 1 + 1 + 4 + nameLen;
+    int packetLen = 1 + (1 + 4 + 1 + nameLen);
     if (packetLen > 64) 
     {
         UDPSendSimple(false);
@@ -119,14 +119,15 @@ static void UDPCMD_Discover()
     else 
     {
         buffer[0] = packetLen - 1;
+        buffer[1] = CMD_DISCOVER;
 
         for (int ipIndex = 0; ipIndex < 4; ipIndex++) {
-            buffer[1 + ipIndex] = ownIP[ipIndex];
+            buffer[2 + ipIndex] = ownIP[ipIndex];
         }
 
-        buffer[5] = nameLen;
+        buffer[6] = nameLen;
 
-        memcpy(&buffer[6], name, nameLen);
+        memcpy(&buffer[7], name, nameLen);
 
         UDPSend(packetLen);
     }
