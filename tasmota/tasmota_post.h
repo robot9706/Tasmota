@@ -70,6 +70,8 @@ extern "C" void custom_crash_callback(struct rst_info * rst_info, uint32_t stack
 #define MODULE                 SONOFF_BASIC      // [Module] Select default model
 #endif
 
+#define USE_UDPCONTROL
+
 /*********************************************************************************************\
  * [tasmota-sensors.bin]
  * Provide an image with useful supported sensors enabled
