@@ -61,12 +61,27 @@ static void UDPSend(int numBytes)
     udp.endPacket();
 }
 
-static void UDPSendSimple(int messageOK)
+static void UDPAnswer(int messageOK, uint8_t command, bool sendName)
 {
-    buffer[0] = 0x1;
-    buffer[1] = (messageOK ? 0xAB : 0xFF);
+    int bufferLen = 3;
 
-    UDPSend(2);
+    buffer[0] = 0x2;
+    buffer[1] = (messageOK ? 0xAB : 0xFF);
+    buffer[2] = command;
+
+    if (sendName) 
+    {
+        const char* name = SettingsText(SET_FRIENDLYNAME1);
+        int nameLen = strlen(name);
+
+        buffer[0] = (uint8_t)(2 + 1 + nameLen);
+        buffer[3] = (uint8_t)nameLen;
+        memcpy(&buffer[4], name, nameLen);
+
+        bufferLen = 4 + nameLen;
+    }
+
+    UDPSend(bufferLen);
 }
 
 void UDPLoop(void)
@@ -94,7 +109,7 @@ void UDPLoop(void)
             {
                 if (dataLength >= 2) 
                 {
-                    UDPCMD_Power(buffer[2]);   
+                    UDPCMD_Power(buffer[2], false);   
                 }
             }
             break;
@@ -111,7 +126,7 @@ void UDPLoop(void)
                 if (dataLength >= 5)
                 {
                     uint16_t mins = ((uint16_t)buffer[3] | ((uint16_t)buffer[4]) << 8);
-                    UDPCMD_Timer(buffer[2], mins, buffer[5]);
+                    UDPCMD_Timer(buffer[2], mins, buffer[5], false);
                 }
             }
             break;
@@ -160,39 +175,40 @@ static void UDPCMD_Discover()
     const char* name = SettingsText(SET_FRIENDLYNAME1);
     int nameLen = strlen(name);
 
-    int packetLen = 1 + (1 + 4 + 1 + nameLen);
+    int packetLen = 1 + 1 + (1 + 4 + 1 + nameLen);
     if (packetLen > 64) 
     {
-        UDPSendSimple(false);
+        return;
     }
     else 
     {
         buffer[0] = packetLen - 1;
-        buffer[1] = CMD_DISCOVER;
+        buffer[1] = 0xAB;
+        buffer[2] = CMD_DISCOVER;
 
         for (int ipIndex = 0; ipIndex < 4; ipIndex++) {
-            buffer[2 + ipIndex] = ownIP[ipIndex];
+            buffer[3 + ipIndex] = ownIP[ipIndex];
         }
 
-        buffer[6] = nameLen;
+        buffer[7] = nameLen;
 
-        memcpy(&buffer[7], name, nameLen);
+        memcpy(&buffer[8], name, nameLen);
 
         UDPSend(packetLen);
     }
 }
 
-static void UDPCMD_Power(uint8_t mode) 
+static void UDPCMD_Power(uint8_t mode, bool name) 
 {
     uint8_t state = mode - (uint8_t)CMD_POWER_BASE;
     if (state > POWER_TOGGLE) 
     {
-        UDPSendSimple(false);
+        UDPAnswer(false, name ? CMD_POWER_NAME : CMD_POWER, name);
         return;
     }
 
     ExecuteCommandPower(1, state, SRC_IGNORE);
-    UDPSendSimple(true);
+    UDPAnswer(true, name ? CMD_POWER_NAME : CMD_POWER, name);
 }
 
 static void UDPCMD_Power_WithName(uint8_t mode, uint8_t targetNameLen, uint8_t* targetName)
@@ -202,14 +218,14 @@ static void UDPCMD_Power_WithName(uint8_t mode, uint8_t targetNameLen, uint8_t* 
         return;
     }
 
-    UDPCMD_Power(mode);
+    UDPCMD_Power(mode, true);
 }
 
-static void UDPCMD_Timer(uint8_t index, uint16_t mins, uint8_t flags)
+static void UDPCMD_Timer(uint8_t index, uint16_t mins, uint8_t flags, bool name)
 {
     if (index >= MAX_TIMERS) 
     {
-        UDPSendSimple(false);
+        UDPAnswer(false, name ? CMD_TIMER_NAME : CMD_TIMER, name);
         return;
     }
 
@@ -223,7 +239,7 @@ static void UDPCMD_Timer(uint8_t index, uint16_t mins, uint8_t flags)
     t->mode = 0;
     t->arm = ((flags & CMD_TIMER_FLAG_ARM) == CMD_TIMER_FLAG_ARM);
 
-    UDPSendSimple(true);
+    UDPAnswer(true, name ? CMD_TIMER_NAME : CMD_TIMER, name);
 }
 
 static void UDPCMD_Timer_WithName(uint8_t index, uint16_t mins, uint8_t flags, uint8_t targetNameLen, uint8_t* targetName)
@@ -233,7 +249,7 @@ static void UDPCMD_Timer_WithName(uint8_t index, uint16_t mins, uint8_t flags, u
         return;
     }
 
-    UDPCMD_Timer(index, mins, flags);
+    UDPCMD_Timer(index, mins, flags, true);
 }
 
 /*********************************************************************************************\
