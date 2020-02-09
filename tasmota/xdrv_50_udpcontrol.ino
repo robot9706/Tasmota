@@ -27,6 +27,7 @@
 
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
+#include "settings.h"
 
 static WiFiUDP udp;
 
@@ -38,6 +39,15 @@ static uint8_t buffer[BUFFER_SIZE];
 #define CMD_POWER 0x67
 #define CMD_POWER_NAME 0x68
 #define CMD_POWER_BASE 0x50
+
+#define CMD_TIMER 0x80
+#define CMD_TIMER_NAME 0x81
+#define CMD_TIMER_FLAG_REPEAT       (0b00000001)
+#define CMD_TIMER_FLAG_ARM          (0b00000010)
+#define CMD_TIMER_FLAG_PWRMODE_MASK (0b00001100)
+#define CMD_TIMER_FLAG_PWRMODE_SHIFT (2)
+#define CMD_TIMER_FLAG_DEVICE_MASK (0b11110000)
+#define CMD_TIMER_FLAG_DEVICE_SHIFT (4)
 
 void UDPInit(void)
 {
@@ -96,8 +106,47 @@ void UDPLoop(void)
                 }
             }
             break;
+            case CMD_TIMER:
+            {
+                if (dataLength >= 5)
+                {
+                    uint16_t mins = ((uint16_t)buffer[3] | ((uint16_t)buffer[4]) << 8);
+                    UDPCMD_Timer(buffer[2], mins, buffer[5]);
+                }
+            }
+            break;
+            case CMD_TIMER_NAME:
+            {
+                 if (dataLength >= 7)
+                {
+                    uint16_t mins = ((uint16_t)buffer[3] | ((uint16_t)buffer[4]) << 8);
+                    UDPCMD_Timer_WithName(buffer[2], mins, buffer[5], buffer[6], &buffer[7]);
+                }
+            }
+            break;
         }
     }
+}
+
+static bool CheckName(uint8_t targetNameLen, uint8_t* targetName)
+{
+    const char* name = SettingsText(SET_FRIENDLYNAME1);
+    int nameLen = strlen(name);
+
+    if (nameLen != targetNameLen) 
+    {
+        return false;
+    }
+
+    for (int checkIndex = 0; checkIndex < nameLen; checkIndex++) 
+    {
+        if (name[checkIndex] != targetName[checkIndex])
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /*********************************************************************************************\
@@ -148,33 +197,43 @@ static void UDPCMD_Power(uint8_t mode)
 
 static void UDPCMD_Power_WithName(uint8_t mode, uint8_t targetNameLen, uint8_t* targetName)
 {
-    uint8_t state = mode - (uint8_t)CMD_POWER_BASE;
-    if (state > POWER_TOGGLE) 
+    if (!CheckName(targetNameLen, targetName))
+    {
+        return;
+    }
+
+    UDPCMD_Power(mode);
+}
+
+static void UDPCMD_Timer(uint8_t index, uint16_t mins, uint8_t flags)
+{
+    if (index >= MAX_TIMERS) 
     {
         UDPSendSimple(false);
         return;
     }
 
-    const char* name = SettingsText(SET_FRIENDLYNAME1);
-    int nameLen = strlen(name);
+    Timer *t = &Settings.timer[index];
+    t->time = mins;
+    t->window = 0;
+    t->repeat = ((flags & CMD_TIMER_FLAG_REPEAT) == CMD_TIMER_FLAG_REPEAT);
+    t->days = 0b1111111;
+    t->device = ((flags & CMD_TIMER_FLAG_DEVICE_MASK) >> CMD_TIMER_FLAG_DEVICE_SHIFT);
+    t->power = ((flags & CMD_TIMER_FLAG_PWRMODE_MASK) >> CMD_TIMER_FLAG_PWRMODE_SHIFT);
+    t->mode = 0;
+    t->arm = ((flags & CMD_TIMER_FLAG_ARM) == CMD_TIMER_FLAG_ARM);
 
-    if (nameLen != targetNameLen) 
-    {
-        UDPSendSimple(false);
-        return;
-    }
-
-    for (int checkIndex = 0; checkIndex < nameLen; checkIndex++) 
-    {
-        if (name[checkIndex] != targetName[checkIndex])
-        {
-            UDPSendSimple(false);
-            return;
-        }
-    }
-
-    ExecuteCommandPower(1, state, SRC_IGNORE);
     UDPSendSimple(true);
+}
+
+static void UDPCMD_Timer_WithName(uint8_t index, uint16_t mins, uint8_t flags, uint8_t targetNameLen, uint8_t* targetName)
+{
+    if (!CheckName(targetNameLen, targetName))
+    {
+        return;
+    }
+
+    UDPCMD_Timer(index, mins, flags);
 }
 
 /*********************************************************************************************\
